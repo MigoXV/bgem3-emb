@@ -8,7 +8,7 @@ import subprocess
 
 import grpc
 
-from bgem3_emb.engine import Engine
+from bgem3_emb.engines import Engine
 from bgem3_emb.proto import embedding_pb2_grpc as rpc
 from bgem3_emb.servicer import Servicer
 

@@ -2,7 +2,7 @@
 
 import grpc
 
-from bgem3_emb.engine import Busy, Unavailable
+from bgem3_emb.engines import Busy, Unavailable
 from bgem3_emb.proto import embedding_pb2 as pb
 from bgem3_emb.proto import embedding_pb2_grpc as rpc
 
