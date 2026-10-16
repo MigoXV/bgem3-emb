@@ -9,4 +9,4 @@ poetry run python -m grpc_tools.protoc \
   --mypy_grpc_out=src/bgem3_emb/proto src/bgem3_emb/proto/embedding.proto
 # 同一协议嵌入两个轻量包时使用相对导入；不修改生成代码的业务逻辑。
 sed -i 's/^import embedding_pb2 as/from . import embedding_pb2 as/' src/bgem3_emb/proto/embedding_pb2_grpc.py
-sed -i 's/^import embedding_pb2$/from . import embedding_pb2/' src/bgem3_emb/proto/embedding_pb2_grpc.pyi
+sed -i 's/^import embedding_pb2/from . import embedding_pb2/' src/bgem3_emb/proto/embedding_pb2_grpc.pyi

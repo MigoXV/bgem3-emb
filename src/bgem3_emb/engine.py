@@ -75,6 +75,7 @@ class Engine:
         except BaseException:
             if self.runtime:
                 await loop.run_in_executor(self.executor, self.runtime.close)
+                self.runtime = None
             self.executor.shutdown(wait=True)
             raise
         self.worker = asyncio.create_task(self._run(), name="embedding-queue")
@@ -84,16 +85,20 @@ class Engine:
         if not self.ready:
             raise Unavailable("engine not ready")
         self.stats["requests"] += 1
-        limit = max_tokens or self.config.max_tokens
-        if not texts or len(texts) > self.config.max_texts:
-            raise ValueError("invalid number of texts")
-        if not 8 <= limit <= self.config.max_tokens:
-            raise ValueError("invalid max_tokens")
-        if any(not x.strip() or len(x) > self.config.max_text_chars for x in texts):
-            raise ValueError("empty or oversized text")
-        size = sum(len(x.encode("utf-8")) for x in texts)
-        if size > self.config.request_bytes:
-            raise ValueError("request bytes exceeded")
+        try:
+            limit = max_tokens or self.config.max_tokens
+            if not texts or len(texts) > self.config.max_texts:
+                raise ValueError("invalid number of texts")
+            if not 8 <= limit <= self.config.max_tokens:
+                raise ValueError("invalid max_tokens")
+            if any(not x.strip() or len(x) > self.config.max_text_chars for x in texts):
+                raise ValueError("empty or oversized text")
+            size = sum(len(x.encode("utf-8")) for x in texts)
+            if size > self.config.request_bytes:
+                raise ValueError("request bytes exceeded")
+        except ValueError:
+            self.stats["failed"] += 1
+            raise
         if self.queue.full() or self.queued_bytes + size > self.config.queue_bytes:
             self.stats["rejected"] += 1
             raise Busy("embedding queue full")
@@ -116,7 +121,7 @@ class Engine:
             self.stats["cancelled"] += 1
             future.cancel()
             raise
-        except asyncio.TimeoutError as exc:
+        except (asyncio.TimeoutError, TimeoutError) as exc:
             self.stats["expired"] += 1
             future.cancel()
             raise TimeoutError("embedding deadline exceeded") from exc

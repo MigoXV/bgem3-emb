@@ -11,7 +11,7 @@ poetry env use python3.10
 poetry install
 poetry run bgem3-emb serve \
   --model-dir /workspace/model-bin/BAAI/bge-m3 \
-  --device cuda:3 --dtype bfloat16 --port 50054
+  --device cuda:3 --dtype float16 --port 50054
 ```
 
 CLI 安全默认值为 CPU、FP32，GPU 必须显式选择。`--model-dir` 必填；支持 `BGE_MODEL_DIR`、`BGE_DEVICE`、`BGE_DTYPE`、`BGE_HOST`、`BGE_PORT`、`BGE_MAX_TOKENS`、`BGE_BATCH_SIZE`、`BGE_MAX_TEXTS`、`BGE_QUEUE_CAPACITY`。默认单批 8 条、每次 RPC 最多 128 条、512 token、队列 16 个请求，另有总排队字节和单请求字节限制。8192 是模型上限，长序列显存和批大小须单独验证。
@@ -66,4 +66,18 @@ poetry run python scripts/benchmark.py --device cuda:3 --rounds 20
 
 基准用同一中文文本、相同 token 长度和批大小，对照旧 FP32 ONNX CPU 与 GPU FP32/BF16；多次预热和多轮实测，记录原始耗时、P50/P95/P99、吞吐、精度对齐及资源信息。`reports/cpu-gpu.json` 只含合成输入的性能数值，不含会议原文或生成结果。CPU 和 GPU 均在同一服务器，差值包含设备及运行时改变。
 
-首次十轮对照（Xeon Gold 6326 / A100 40GB）：8×512 token 为 CPU 约 1627ms、GPU FP32 约 205ms、GPU BF16 约 40ms；最终报告以重新运行的原始数据为准。验收容差在测量前固定：GPU FP32 与 ONNX 最小余弦相似度 0.99999，BF16 为 0.999，成对相似度最大变化 0.01。批量及不同精度通过容差后再用于业务。
+20 轮对照（Xeon Gold 6326 / A100 40GB，预热 3 次）的中位数：
+
+| 批大小 × token | CPU ONNX FP32 | GPU FP16 | 加速比 |
+| --- | ---: | ---: | ---: |
+| 1 × 64 | 34.68ms | 12.58ms | 2.76× |
+| 1 × 256 | 86.23ms | 12.48ms | 6.91× |
+| 1 × 512 | 185.52ms | 12.49ms | 14.85× |
+| 8 × 128 | 380.97ms | 14.62ms | 26.06× |
+| 8 × 512 | 1626.76ms | 39.18ms | 41.52× |
+
+CPU 数字仅计 ONNX 执行和归一化，GPU 还包含 tokenizer 及数据传输。CPU 有尾延迟波动，原始轮次全部保留，不能仅看加速比推断其他服务器的性能。验收容差在测量前固定：GPU FP32 与 ONNX 最小余弦 0.99999，低精度为 0.999，成对相似度最大变化 0.01。
+
+最终部署精度选择 FP16。BF16 在等长输入矩阵通过，但在混合长度批次中的重复长文本得到最低余弦 0.998998，低于预设 0.999 门槛，因此不作为已验收部署配置；失败数值保留于 `reports/service-bf16-rejected.json`。同样输入 FP16 最低余弦约 0.999977，成对相似度最大变化约 0.00030。`scripts/check_service.py` 进一步验证真实 gRPC、混合 padding、显式截断、并发 1/2/4/8 及过载 32；性能及对齐结果保存为纯数值报告。
+
+模型标识还包含运行精度、CLS pooling 和归一化方式；部署中改变这些语义时，业务缓存不能继续混用旧向量。完整性能矩阵包含 FP32、FP16、BF16，等长矩阵通过不能代替混合长度验收。

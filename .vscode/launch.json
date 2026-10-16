@@ -3,7 +3,7 @@
   "configurations": [{
     "name": "BGE-M3 gRPC",
     "type": "debugpy", "request": "launch", "module": "bgem3_emb.commands.app",
-    "args": ["serve", "--model-dir", "/workspace/model-bin/BAAI/bge-m3", "--device", "cuda:3", "--dtype", "bfloat16"],
+    "args": ["serve", "--model-dir", "/workspace/model-bin/BAAI/bge-m3", "--device", "cuda:3", "--dtype", "float16"],
     "console": "integratedTerminal", "envFile": "${workspaceFolder}/.env"
   }]
 }
