@@ -1,0 +1,56 @@
+syntax = "proto3";
+package bgem3.v1;
+
+// 无状态文本编码。查询、分类、检索和业务阈值由调用者管理。
+service EmbeddingService {
+  rpc Encode(EncodeRequest) returns (EncodeResponse);
+  rpc Metadata(MetadataRequest) returns (MetadataResponse);
+}
+message EncodeRequest {
+  repeated string texts = 1;
+  // 0 使用服务上限；超长输入默认拒绝，truncate=true 才允许截断。
+  uint32 max_tokens = 2;
+  bool truncate = 3;
+}
+message Embedding {
+  repeated float values = 1; // FP32、L2 归一化、1024 维；与输入同序。
+  uint32 token_count = 2; // 截断前 token 数，含特殊 token。
+  bool truncated = 3;
+}
+message EncodeResponse {
+  repeated Embedding embeddings = 1;
+  string model_id = 2;
+  string generation = 3;
+  double queue_ms = 4;
+  double inference_ms = 5; // 包含分批、预处理和数据传输。
+}
+message MetadataRequest {}
+message MetadataResponse {
+  bool ready = 1;
+  string model_id = 2;
+  string generation = 3;
+  string device = 4;
+  string dtype = 5;
+  string runner = 6;
+  uint32 dimensions = 7;
+  uint32 max_tokens = 8;
+  uint32 max_texts = 9;
+  uint32 max_batch_size = 10;
+  uint32 queue_capacity = 11;
+  uint32 queued = 12;
+  uint32 active = 13;
+  uint64 requests = 14;
+  uint64 completed = 15;
+  uint64 rejected = 16;
+  uint64 cancelled = 17;
+  uint64 failed = 18;
+  uint64 expired = 19;
+  uint64 batches = 20;
+  uint64 texts = 21;
+  uint64 queued_bytes = 22;
+  uint64 queue_byte_capacity = 23;
+  map<uint32, uint64> batch_sizes = 24;
+  string revision = 25;
+  double last_queue_ms = 26;
+  double last_inference_ms = 27;
+}
