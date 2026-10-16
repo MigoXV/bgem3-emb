@@ -4,14 +4,14 @@
 
 ## 安装与启动
 
-使用 Python 3.10 和 Poetry。现有环境使用 PyTorch 2.8.0 + CUDA 12.8；部署时先按设备安装对应 Torch wheel，再安装项目依赖。权重不提交 Git，不打入代码包，也不在服务启动时下载。
+使用 Python 3.10 和 Poetry。当前 910B 分支环境使用 PyTorch 2.8.0+cpu 和 torch-npu 2.8.0；部署时先按设备安装对应 Torch wheel 和平台扩展，再安装项目依赖。权重不提交 Git，不打入代码包，也不在服务启动时下载。
 
 ```bash
 poetry env use python3.10
 poetry install
 poetry run bgem3-emb serve \
-  --model-dir /workspace/model-bin/BAAI/bge-m3 \
-  --device cuda:3 --dtype float16 --port 50054
+  --model-dir /home/model-bin/BAAI/bge-m3 \
+  --device npu:0 --dtype float16 --port 50054
 ```
 
 CLI 安全默认值为 CPU、FP32，加速设备必须显式选择。支持 `cpu`、`cuda:N`、`npu:N`，不存在的设备报错，不自动回退。`--model-dir` 必填；支持 `BGE_MODEL_DIR`、`BGE_DEVICE`、`BGE_DTYPE`、`BGE_HOST`、`BGE_PORT`、`BGE_MAX_TOKENS`、`BGE_BATCH_SIZE`、`BGE_MAX_TEXTS`、`BGE_QUEUE_CAPACITY`。默认单批 8 条、每次 RPC 最多 128 条、512 token、队列 16 个请求，另有总排队字节和单请求字节限制。8192 是模型上限，长序列显存和批大小须单独验证。
@@ -50,13 +50,13 @@ asyncio.run(main())
 
 ## 执行与生命周期
 
-调用链为 `Async gRPC -> 有界 FIFO Engine -> 唯一 Worker 线程 -> Runtime -> Torch eager`。gRPC handler 只校验、入队、等待结果，不执行同步推理。一个线程拥有一份模型和 CUDA 上下文；一次只执行一个请求，内部按批大小拆分；不人为等待跨请求组批。
+调用链为 `Async gRPC -> 有界 FIFO Engine -> 唯一 Worker 线程 -> Runtime -> Torch eager`。gRPC handler 只校验、入队、等待结果，不执行同步推理。一个线程拥有一份模型和设备上下文；一次只执行一个请求，内部按批大小拆分；不人为等待跨请求组批。
 
 请求 deadline 使用单调时钟，覆盖排队与执行。排队取消项在出队时跳过；已执行 kernel 的请求取消后只丢弃结果，不影响同队列其他请求。这里没有模型会话、向量数据库或服务端文本缓存。请求内容、向量及运行事件不写文件，日志只输出启动及故障元数据。
 
-加载与预热成功后才启动 gRPC。SIGINT/SIGTERM 停止接收、失败 pending 请求、等待当前 kernel 并释放模型和端口。超过 30 秒关闭宽限期时终止进程，避免同步 CUDA 工作留下无法退出的线程；部署系统应据退出码判断失败。
+加载与预热成功后才启动 gRPC。SIGINT/SIGTERM 停止接收、失败 pending 请求、等待当前 kernel 并释放模型和端口。超过 30 秒关闭宽限期时终止进程，避免同步设备工作留下无法退出的线程；部署系统应据退出码判断失败。
 
-## 测试与性能对照
+## 历史 CUDA 测试与性能对照
 
 ```bash
 poetry run pytest -q
@@ -101,3 +101,51 @@ poetry run bgem3-emb serve \
 公共 FIFO 调度位于 `engines/scheduler.py`，共享分词、批处理与向量后处理位于
 `engines/torch_runtime.py`，平台设备初始化和资源管理分别位于 CPU/CUDA/NPU 实现。
 NPU 插件仅在选择 NPU 后端时显式导入。旧 `engine` 和 `runtime` 导入保留兼容入口。
+
+## 910B gRPC 测试与性能
+
+本次仅做真实 gRPC 层面的测试，不运行内部单元测试，不测 CPU/CUDA 性能。
+FP32、FP16、BF16 均验证服务就绪、混合长度、输出顺序、1024 维有限单位向量、
+显式截断、非法输入拒绝、并发请求及 SIGTERM 正常退出。
+此处的通过表示 gRPC 功能和输出基本性质通过，未进行跨后端精度对齐。
+
+```bash
+poetry run python scripts/benchmark_grpc.py \
+  --model-dir /home/model-bin/BAAI/bge-m3 --device npu:0 \
+  --rounds 20 --warmups 3 --output reports/npu-grpc.json
+```
+
+工具会依次为每种精度启动独立服务、分配临时端口，并在测试后终止和等待服务退出，
+不要另起占用同一 NPU 的实例。可用 `--dtypes float16` 仅测 FP16。
+客户端只经 gRPC 请求服务，不导入 Torch、Runtime 或 ONNX。
+
+吞吐定义为**成功完成的实际 token 总数 / 各轮客户端总耗时之和**，含特殊 token、
+不含 padding，截断请求按截断后长度计算。每轮并发请求按共同起止时间计时，
+不累加各请求的独立速率。耗时包含 RPC、排队、分词、设备传输、推理与返回，
+不包含加载、预热及客户端输出检查。预热 3 轮、测量 20 轮，
+覆盖批大小 1/8、长度 64/256/512、并发 1/2/4/8。
+
+2026-10-16 实测环境为 ARM64、Ascend 910B4-1 64GB、CANN 8.3.RC1、
+PyTorch 2.8.0+cpu、torch-npu 2.8.0、Transformers 4.57.6。
+下面列出并发 1 的吞吐（tokens/s）；完整并发结果、每轮耗时、P50/P95/P99、
+模型标识、设备盘点和退出记录见 [NPU gRPC 原始报告](reports/npu-grpc.json)。
+
+| 每次请求条数 × 每条 token | FP32 tokens/s | FP16 tokens/s | BF16 tokens/s |
+| --- | ---: | ---: | ---: |
+| 1 × 64 | 2,444 | 2,406 | 2,388 |
+| 1 × 256 | 9,303 | 9,512 | 9,276 |
+| 1 × 512 | 17,061 | 18,775 | 18,600 |
+| 8 × 64 | 17,640 | 19,053 | 16,395 |
+| 8 × 256 | 53,283 | 67,190 | 62,386 |
+| 8 × 512 | 47,718 | 97,970 | 94,541 |
+
+共 72 个性能场景、5,400 次测量请求，性能场景无错误。
+三种精度服务均以退出码 0 关闭，端口释放，关闭后 NPU 进程盘点为空。
+FP16 在 8 × 512、并发 1 时约 9.8 万 tokens/s，P50 约 41.7 ms；
+同场景并发 8 约 9.9 万 tokens/s，P50 约 188.5 ms。
+当前采用单 Worker 串行执行请求，并发提高主要增加排队时间；
+可显式选择 FP16 部署，CPU/FP32 的安全默认值保持不变。
+
+测试期间代码固定为 `16b5122`。后两组服务 Metadata 的 `+dirty` 来自前一组
+生成的未提交报告，测试期间未修改源码。以上为当前机器的合成文本测量，
+不是纯设备 kernel 吞吐，也未对跨后端的检索精度作验收。
