@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 
 def revision():
     result = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True)
-    return result.stdout.strip() or "uncommitted"
+    status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+    return (result.stdout.strip() or "uncommitted") + ("+dirty" if status.stdout else "")
 
 
 async def serve(config, host, port):

@@ -142,3 +142,53 @@ async def test_loading_failure_releases_executor():
         await engine.start()
     await engine.close()
     assert not engine.ready
+
+
+async def test_queue_byte_limit_is_independent_of_request_count():
+    config = Config(model_dir=Path("."), queue_capacity=4, request_bytes=1024, queue_bytes=1024)
+    engine = Engine(config, FakeRuntime)
+    await engine.start()
+    first = asyncio.create_task(engine.encode(["active"]))
+    assert await asyncio.to_thread(engine.runtime.started.wait, 1)
+    second = asyncio.create_task(engine.encode(["a" * 700]))
+    await asyncio.sleep(0)
+    try:
+        with pytest.raises(Busy):
+            await engine.encode(["b" * 700])
+        assert engine.queue.qsize() == 1
+        assert engine.queued_bytes == 700
+        engine.runtime.gate.set()
+        await asyncio.gather(first, second)
+    finally:
+        engine.runtime.gate.set()
+        await engine.close()
+
+
+async def test_close_fails_active_and_queued_requests_and_releases_model():
+    engine, first = await busy_engine()
+    second = asyncio.create_task(engine.encode(["queued"]))
+    await asyncio.sleep(0)
+    closing = asyncio.create_task(engine.close())
+    for request in (first, second):
+        with pytest.raises(Unavailable):
+            await request
+    runtime = engine.runtime
+    runtime.gate.set()
+    await closing
+    assert runtime.closed and engine.queued_bytes == 0 and not engine.pending
+
+
+async def test_warmup_failure_closes_loaded_runtime():
+    runtime = None
+
+    def factory(config):
+        nonlocal runtime
+        runtime = FakeRuntime(config)
+        runtime.fail = True
+        return runtime
+
+    engine = Engine(Config(model_dir=Path(".")), factory)
+    with pytest.raises(RuntimeError):
+        await engine.start()
+    assert runtime.closed and engine.runtime is None
+    await engine.close()

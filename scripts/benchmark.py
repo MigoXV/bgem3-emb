@@ -1,7 +1,6 @@
 """相同中文输入、相同 tokenizer、同一机器，对照旧 CPU ONNX 和 Torch GPU。只保存性能数值。"""
 
 import gc
-import hashlib
 import json
 import platform
 import resource
@@ -45,6 +44,10 @@ def main(
         cases.append(values)
     record = {
         "hardware": platform.platform(),
+        "cpu": subprocess.check_output(["lscpu"], text=True),
+        "workspace_status": subprocess.check_output(["git", "status", "--porcelain"], text=True)
+        if Path(".git").exists()
+        else "uncommitted",
         "torch": torch.__version__,
         "ort": ort.__version__,
         "gpu": torch.cuda.get_device_name(torch.device(device)),
@@ -98,9 +101,10 @@ def main(
         print(json.dumps(record["cases"][-1]), flush=True)
     del session
     gc.collect()
-    for dtype in ("float32", "bfloat16"):
+    for dtype in ("float32", "float16", "bfloat16"):
         started = perf_counter()
         runtime = Runtime(Config(model_dir=model_dir, device=device, dtype=dtype))
+        record[dtype + "_model_id"] = runtime.model_id
         record[dtype + "_load_ms"] = (perf_counter() - started) * 1000
         for index, ((batch, length), texts, reference) in enumerate(
             zip(case_shapes, cases, references)
@@ -136,11 +140,12 @@ def main(
         gc.collect()
         torch.cuda.reset_peak_memory_stats(torch.device(device))
     record["max_rss_mib"] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
-    record["weights_sha256"] = hashlib.file_digest if False else "see model_id in service metadata"
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(record, indent=2, ensure_ascii=False) + "\n")
     aligned = all(
         c["float32"]["min_cosine"] >= 0.99999
+        and c["float16"]["min_cosine"] >= 0.999
+        and c["float16"]["max_similarity_delta"] <= 0.01
         and c["bfloat16"]["min_cosine"] >= 0.999
         and c["bfloat16"]["max_similarity_delta"] <= 0.01
         for c in record["cases"]

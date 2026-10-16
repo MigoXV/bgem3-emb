@@ -1,0 +1,20 @@
+{
+  "accepted": false,
+  "dtype": "bfloat16",
+  "model_id": "bge-m3:8b2a7a8956365600d1f47092d27ecf3238e539c000f294ffbcc2fa76fdca14cd",
+  "generation": "3986a8aa2fec41638d532991f9f78475",
+  "revision": "52ff64f",
+  "cosines": [
+    0.999951958656311,
+    0.999935507774353,
+    0.9999384880065918,
+    0.9998776912689209,
+    0.9999266862869263,
+    0.9999274611473083,
+    0.9989980459213257,
+    0.9999401569366455
+  ],
+  "max_similarity_delta": 0.003825843334197998,
+  "min_cosine_required": 0.999,
+  "max_similarity_delta_allowed": 0.01
+}

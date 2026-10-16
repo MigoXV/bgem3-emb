@@ -52,7 +52,7 @@ class Runtime:
         torch.set_num_threads(4)
         # 固定 eager 作为可对齐基线；不隐式启用编译、TF32 或远程代码。
         torch.backends.cuda.matmul.allow_tf32 = False
-        self.model_id = model_identity(config.model_dir)
+        self.model_id = model_identity(config.model_dir) + ":" + config.dtype + ":cls:l2"
         self.tokenizer = AutoTokenizer.from_pretrained(config.model_dir, local_files_only=True)
         self.model = (
             AutoModel.from_pretrained(
