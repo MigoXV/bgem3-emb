@@ -14,7 +14,7 @@ poetry run bgem3-emb serve \
   --device cuda:3 --dtype float16 --port 50054
 ```
 
-CLI 安全默认值为 CPU、FP32，GPU 必须显式选择。`--model-dir` 必填；支持 `BGE_MODEL_DIR`、`BGE_DEVICE`、`BGE_DTYPE`、`BGE_HOST`、`BGE_PORT`、`BGE_MAX_TOKENS`、`BGE_BATCH_SIZE`、`BGE_MAX_TEXTS`、`BGE_QUEUE_CAPACITY`。默认单批 8 条、每次 RPC 最多 128 条、512 token、队列 16 个请求，另有总排队字节和单请求字节限制。8192 是模型上限，长序列显存和批大小须单独验证。
+CLI 安全默认值为 CPU、FP32，加速设备必须显式选择。支持 `cpu`、`cuda:N`、`npu:N`，不存在的设备报错，不自动回退。`--model-dir` 必填；支持 `BGE_MODEL_DIR`、`BGE_DEVICE`、`BGE_DTYPE`、`BGE_HOST`、`BGE_PORT`、`BGE_MAX_TOKENS`、`BGE_BATCH_SIZE`、`BGE_MAX_TEXTS`、`BGE_QUEUE_CAPACITY`。默认单批 8 条、每次 RPC 最多 128 条、512 token、队列 16 个请求，另有总排队字节和单请求字节限制。8192 是模型上限，长序列显存和批大小须单独验证。
 
 默认只监听 `127.0.0.1:50054`。跨机器部署时显式配置监听地址，并通过受控网络访问。业务客户端的 `MEETNOTE_EMBEDDING_TARGET` 必须指向服务。
 
@@ -81,3 +81,23 @@ CPU 数字仅计 ONNX 执行和归一化，GPU 还包含 tokenizer 及数据传�
 最终部署精度选择 FP16。BF16 在等长输入矩阵通过，但在混合长度批次中的重复长文本得到最低余弦 0.998998，低于预设 0.999 门槛，因此不作为已验收部署配置；失败数值保留于 `reports/service-bf16-rejected.json`。同样输入 FP16 最低余弦约 0.999977，成对相似度最大变化约 0.00030。`scripts/check_service.py` 进一步验证真实 gRPC、混合 padding、显式截断、并发 1/2/4/8 及过载 32；性能及对齐结果保存为纯数值报告。
 
 模型标识还包含运行精度、CLS pooling 和归一化方式；部署中改变这些语义时，业务缓存不能继续混用旧向量。完整性能矩阵包含 FP32、FP16、BF16，等长矩阵通过不能代替混合长度验收。
+
+## Ascend 910B 部署
+
+硬件依赖按平台安装，不加入所有环境共用的项目依赖。当前 ARM64 环境使用
+CANN 8.3.RC1、PyTorch 2.8.0+cpu、torch-npu 2.8.0，版本对应关系见
+[昇腾官方兼容矩阵](https://github.com/Ascend/pytorch/tree/v2.8.0#ascend-auxiliary-software)。
+
+```bash
+source /usr/local/Ascend/ascend-toolkit/set_env.sh
+poetry run pip install 'torch-npu==2.8.0' pyyaml setuptools
+poetry run bgem3-emb serve \
+  --model-dir /home/model-bin/BAAI/bge-m3 \
+  --device npu:0 --dtype float16 --batch-size 8 --port 50054
+```
+
+`npu:0` 是容器内逻辑编号，即使 `npu-smi` 显示物理卡 4 也不能直接使用
+`npu:4`。CPU 版 Torch 通过 torch_npu 扩展调用 NPU，无需 CUDA。
+公共 FIFO 调度位于 `engines/scheduler.py`，共享分词、批处理与向量后处理位于
+`engines/torch_runtime.py`，平台设备初始化和资源管理分别位于 CPU/CUDA/NPU 实现。
+NPU 插件仅在选择 NPU 后端时显式导入。旧 `engine` 和 `runtime` 导入保留兼容入口。

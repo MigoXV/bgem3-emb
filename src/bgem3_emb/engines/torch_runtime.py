@@ -46,18 +46,22 @@ class Runtime:
         # 固定 eager 作为可对齐基线；不隐式启用编译、TF32 或远程代码。
         self.model_id = model_identity(config.model_dir) + ":" + config.dtype + ":cls:l2"
         self.tokenizer = AutoTokenizer.from_pretrained(config.model_dir, local_files_only=True)
-        self.model = (
-            AutoModel.from_pretrained(
-                config.model_dir,
-                local_files_only=True,
-                torch_dtype=self.dtype,
-                attn_implementation="eager",
+        try:
+            self.model = (
+                AutoModel.from_pretrained(
+                    config.model_dir,
+                    local_files_only=True,
+                    torch_dtype=self.dtype,
+                    attn_implementation="eager",
+                )
+                .eval()
+                .to(self.device)
             )
-            .eval()
-            .to(self.device)
-        )
-        if self.model.config.hidden_size != self.dimensions:
-            raise ValueError("模型不是预期的 1024 维 BGE-M3")
+            if self.model.config.hidden_size != self.dimensions:
+                raise ValueError("模型不是预期的 1024 维 BGE-M3")
+        except BaseException:
+            self.close()
+            raise
 
     def encode(self, texts: list[str], max_tokens: int, truncate: bool) -> Encoded:
         started = perf_counter()

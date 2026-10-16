@@ -14,4 +14,8 @@ def create_runtime(config):
         from bgem3_emb.engines.cuda import CUDARuntime
 
         return CUDARuntime(config)
+    if config.device.startswith("npu:"):
+        from bgem3_emb.engines.npu import NPURuntime
+
+        return NPURuntime(config)
     raise ValueError(f"不支持的设备: {config.device}")
