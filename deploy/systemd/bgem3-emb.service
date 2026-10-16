@@ -1,0 +1,23 @@
+[Unit]
+Description=BGE-M3 gRPC embeddings on Ascend 910B
+After=network.target qwen-llm.service
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/repositories/bgem3-emb
+Environment=PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/bin
+EnvironmentFile=-/etc/bgem3-emb.env
+ExecStart=/bin/bash /root/repositories/bgem3-emb/scripts/run_npu.sh
+ExecStartPost=/bin/bash -c "exec poetry run python scripts/wait_ready.py"
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=240
+TimeoutStopSec=45
+KillMode=control-group
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

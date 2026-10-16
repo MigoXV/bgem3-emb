@@ -149,3 +149,22 @@ FP16 在 8 × 512、并发 1 时约 9.8 万 tokens/s，P50 约 41.7 ms；
 测试期间代码固定为 `16b5122`。后两组服务 Metadata 的 `+dirty` 来自前一组
 生成的未提交报告，测试期间未修改源码。以上为当前机器的合成文本测量，
 不是纯设备 kernel 吞吐，也未对跨后端的检索精度作验收。
+
+## hz01 的 NPU 系统服务
+
+`deploy/systemd/bgem3-emb.service` 使用 `scripts/run_npu.sh` 启动独立的
+Torch 2.8 / CANN 8.3 环境，默认加载 `/home/model-bin/BAAI/bge-m3`，
+设备 `npu:0`、FP16，监听 `127.0.0.1:50054`。启动检查通过实际 gRPC
+Metadata 确认 NPU 就绪后才返回成功。模型与 Qwen 共用同一张卡。
+
+```bash
+cp deploy/systemd/bgem3-emb.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now bgem3-emb
+journalctl -u bgem3-emb -f
+```
+
+可选环境文件 `/etc/bgem3-emb.env` 支持覆盖 `BGE_MODEL_DIR`、`BGE_DTYPE`。
+部署路径为本机 `/root/repositories/bgem3-emb`，迁移机器时同步修改 unit 和脚本。
+服务异常退出后十秒重试；短时间连续三次失败则停止重试，修复后运行
+`systemctl reset-failed bgem3-emb && systemctl start bgem3-emb`。
