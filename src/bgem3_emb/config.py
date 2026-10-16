@@ -1,5 +1,6 @@
 """显式运行配置；CLI 负责环境变量，核心不读取进程环境。"""
 
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -22,10 +23,8 @@ class Config(BaseModel):
 
     @model_validator(mode="after")
     def validate_runtime(self):
-        if self.device != "cpu" and not (
-            self.device.startswith("cuda:") and self.device[5:].isdigit()
-        ):
-            raise ValueError("device 必须是 cpu 或 cuda:N")
+        if self.device != "cpu" and not re.fullmatch(r"(?:cuda|npu):[0-9]+", self.device):
+            raise ValueError("device 必须是 cpu、cuda:N 或 npu:N")
         if self.device == "cpu" and self.dtype != "float32":
             raise ValueError("CPU 仅支持 float32 基线")
         if self.queue_bytes < self.request_bytes:

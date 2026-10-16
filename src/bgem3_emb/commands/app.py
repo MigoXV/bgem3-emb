@@ -18,7 +18,7 @@ def main():
 @app.command()
 def serve(
     model_dir: Path = typer.Option(..., envvar="BGE_MODEL_DIR", help="本地模型目录，不自动下载"),
-    device: str = typer.Option("cpu", envvar="BGE_DEVICE", help="cpu 或 cuda:N"),
+    device: str = typer.Option("cpu", envvar="BGE_DEVICE", help="cpu、cuda:N 或 npu:N（容器内逻辑编号）"),
     dtype: str = typer.Option("float32", envvar="BGE_DTYPE"),
     host: str = typer.Option("127.0.0.1", envvar="BGE_HOST"),
     port: int = typer.Option(50054, envvar="BGE_PORT", min=1, max=65535),
